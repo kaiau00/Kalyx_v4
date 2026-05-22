@@ -9,6 +9,78 @@
 
 A production-grade algorithmic trading bot for **Polymarket's 15-minute BTC price prediction markets**. Built with a 7-phase architecture combining multiple signal sources, professional risk management, and self-learning capabilities.
 
+## Kalshi BTC 15-Minute Strategy
+
+This repo also includes a Kalshi-native BTC 15-minute strategy path that runs beside the original Polymarket/Nautilus bot. It reuses the same high-level architecture idea: technical signals from external BTC candles, Kalshi order-book signals, weighted fusion, expected-value filtering, half-Kelly sizing, and risk gates before execution.
+
+The Kalshi path is BTC-first. ETH/SOL can be added later by setting asset-specific series or ticker-prefix env vars and running the scheduler with `--asset`.
+
+### Kalshi Environment
+
+Start from the dedicated template:
+
+```bash
+cp .env.kalshi.example .env
+```
+
+```env
+KALSHI_API_KEY=your_api_key_id
+KALSHI_PRIVATE_KEY_PATH=/absolute/path/to/kalshi-private-key.pem
+# Or use KALSHI_PRIVATE_KEY with escaped newlines.
+
+KALSHI_DEMO=true
+# KALSHI_BASE_URL=https://external-api.kalshi.com/trade-api/v2
+
+KALSHI_BTC_SERIES_TICKER=
+KALSHI_BTC_TICKER_PREFIX=
+KALSHI_BTC_KEYWORDS=BTC,Bitcoin
+KALSHI_ALLOW_KEYWORD_DISCOVERY=false
+
+KALSHI_CANDLE_PROVIDER=coinbase
+KALSHI_DRY_RUN=true
+KALSHI_BANKROLL=1000.00
+KALSHI_MAX_TRADE_DOLLARS=25.00
+KALSHI_MAX_TOTAL_EXPOSURE=100.00
+KALSHI_MAX_DAILY_LOSS=50.00
+KALSHI_EV_THRESHOLD=0.01
+KALSHI_FEE_PER_CONTRACT=0.10
+KALSHI_KELLY_CAP=0.25
+KALSHI_KELLY_MULTIPLIER=0.50
+KALSHI_MIN_EDGE_AFTER_FEES=0.03
+KALSHI_MAX_SPREAD_CENTS=6
+KALSHI_MIN_TOP_DEPTH=5
+KALSHI_MIN_MODEL_CONFIDENCE=0.20
+KALSHI_MODEL_PATH=kalshi_probability_model.json
+```
+
+### Running Kalshi
+
+```bash
+pip install -r requirements-kalshi.txt
+
+# Dry run, one strategy tick per minute
+python run_kalshi_bot.py --asset BTC
+
+# Live trading, real Kalshi limit orders
+python run_kalshi_bot.py --asset BTC --live
+```
+
+Set `KALSHI_BTC_SERIES_TICKER` or `KALSHI_BTC_TICKER_PREFIX` before live trading. Keyword discovery is now opt-in only via `KALSHI_ALLOW_KEYWORD_DISCOVERY=true`.
+
+The strategy entrypoint is `run_kalshi_multisignal_strategy()` in `core/strategy_brain/strategies/kalshi_multisignal_strategy.py`. It fetches the active Kalshi contract, retrieves Binance 1-minute BTCUSDT candles, computes RSI/MACD/CCI/Fisher/ADX/ATR plus Kalshi order-book signals, builds a structured feature snapshot, uses `kalshi_probability_model.json` when available, applies edge/spread/depth/confidence filters plus capped half-Kelly sizing, blocks duplicate entries for the same contract, and places a YES or NO limit order when risk gates pass.
+
+Strategy decisions are appended to `kalshi_trades.jsonl`. Adaptive signal weights are stored in `kalshi_signal_state.json`.
+
+### Kalshi Simulation
+
+```bash
+python simulate_kalshi_strategy.py path/to/snapshots.jsonl
+python analyze_kalshi_trades.py --log kalshi_trades.jsonl
+python train_kalshi_model.py --log kalshi_trades.jsonl --output kalshi_probability_model.json
+```
+
+Snapshot rows should contain candle history, a Kalshi-style order book, and a resolved `result` of `yes` or `no`.
+
 
 ---
 
@@ -325,4 +397,3 @@ If you find this project useful, please star the GitHub repo! It helps others di
 
 ## contact me on telegram 
  [![Telegram](https://img.shields.io/badge/Telegram-%230088cc.svg?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/Bigg_O7)
-
