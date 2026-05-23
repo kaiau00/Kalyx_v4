@@ -174,7 +174,7 @@ class IntegratedBTCStrategy(Strategy):
 
         # Phase 4: Signal Processors
         self.spike_detector = SpikeDetectionProcessor(
-            spike_threshold=0.05,       # FIXED: was 0.15 (too high for probabilities)
+            spike_threshold=0.15,       # Reverted: was 0.05 (too low for probability scale)
             lookback_periods=20,
         )
         self.sentiment_processor = SentimentProcessor(
@@ -333,10 +333,6 @@ class IntegratedBTCStrategy(Strategy):
                     logger.info(f"✓ Initial price: ${float(current_price):.4f}")
             except Exception as e:
                 logger.debug(f"No initial price yet: {e}")
-
-        # Generate synthetic history if needed
-        if len(self.price_history) < 20:
-            self._generate_synthetic_history(target_count=20, existing_count=len(self.price_history))
 
         # =========================================================================
         # FIX 4: Start the timer loop (but don't rely on it for trading)
@@ -556,10 +552,8 @@ class IntegratedBTCStrategy(Strategy):
         self._market_stable = True
         self._waiting_for_market_open = False  # Market is now active
         
-        # Reset trade timer so we trade at the NEXT quote we receive
-        # Use -1 so any interval will trigger (same as startup)
-        self.last_trade_time = -1
-        logger.info(f"  Trade timer reset — will trade on next tick")
+        # Let the stability gate and trade window handle timing — don't force an immediate trade
+        logger.info(f"  Market switched — stability gate will control when trading begins")
         
         self.subscribe_quote_ticks(self.instrument_id)
         return True
@@ -656,9 +650,9 @@ class IntegratedBTCStrategy(Strategy):
             # Stability gate
             if not self._market_stable:
                 self._stable_tick_count += 1
-                if self._stable_tick_count >= 1:
+                if self._stable_tick_count >= QUOTE_STABILITY_REQUIRED:
                     self._market_stable = True
-                    logger.info(f"✓ Market STABLE immediately")
+                    logger.info(f"✓ Market STABLE after {self._stable_tick_count} ticks")
                 else:
                     return
 
@@ -751,16 +745,6 @@ class IntegratedBTCStrategy(Strategy):
     # Trading decision (unchanged)
     # ------------------------------------------------------------------
 
-    def _make_trading_decision_sync(self, current_price):
-        from decimal import Decimal
-        price_decimal = Decimal(str(current_price))
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(self._make_trading_decision(price_decimal))
-        finally:
-            loop.close()
-    
     def _make_trading_decision_sync(self, current_price):
         """Synchronous wrapper for trading decision (called from executor)."""
         # Convert float back to Decimal for processing
