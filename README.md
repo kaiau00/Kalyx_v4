@@ -28,28 +28,39 @@ KALSHI_API_KEY=your_api_key_id
 KALSHI_PRIVATE_KEY_PATH=/absolute/path/to/kalshi-private-key.pem
 # Or use KALSHI_PRIVATE_KEY with escaped newlines.
 
-KALSHI_DEMO=true
+KALSHI_DEMO=false
+# Production override:
 # KALSHI_BASE_URL=https://external-api.kalshi.com/trade-api/v2
 
 KALSHI_BTC_SERIES_TICKER=
 KALSHI_BTC_TICKER_PREFIX=
 KALSHI_BTC_KEYWORDS=BTC,Bitcoin
-KALSHI_ALLOW_KEYWORD_DISCOVERY=false
 
 KALSHI_CANDLE_PROVIDER=coinbase
-KALSHI_DRY_RUN=true
-KALSHI_BANKROLL=1000.00
-KALSHI_MAX_TRADE_DOLLARS=25.00
-KALSHI_MAX_TOTAL_EXPOSURE=100.00
-KALSHI_MAX_DAILY_LOSS=50.00
-KALSHI_EV_THRESHOLD=0.01
+KALSHI_DRY_RUN=false
+KALSHI_BANKROLL=20.00
+KALSHI_MAX_TRADE_DOLLARS=8.00
+KALSHI_MAX_TOTAL_EXPOSURE=20.00
+KALSHI_MAX_DAILY_LOSS=20.00
+KALSHI_EV_THRESHOLD=0.02
 KALSHI_FEE_PER_CONTRACT=0.10
 KALSHI_KELLY_CAP=0.25
 KALSHI_KELLY_MULTIPLIER=0.50
-KALSHI_MIN_EDGE_AFTER_FEES=0.03
-KALSHI_MAX_SPREAD_CENTS=6
+KALSHI_MIN_EDGE_AFTER_FEES=0.05
+KALSHI_MAX_SPREAD_CENTS=3
 KALSHI_MIN_TOP_DEPTH=5
-KALSHI_MIN_MODEL_CONFIDENCE=0.20
+KALSHI_MIN_MODEL_CONFIDENCE=0.50
+KALSHI_MIN_PRICE_CENTS=18
+KALSHI_AVG_IN_EDGE_MULTIPLIER=1.5
+KALSHI_LATE_TRADE_CUTOFF_SECONDS=60
+KALSHI_HARD_LATE_ENTRY_CUTOFF_SECONDS=180
+KALSHI_LATE_WINDOW_SECONDS=420
+KALSHI_LATE_WINDOW_MIN_EDGE=0.08
+KALSHI_LATE_WINDOW_MIN_CONFIDENCE=0.60
+KALSHI_MIN_PROBABILITY_GAP=0.05
+KALSHI_MIN_MARKET_SIDE_PROB=0.08
+KALSHI_MAX_MARKET_SIDE_PROB=0.92
+KALSHI_DRAWDOWN_SIZE_REDUCTION_THRESHOLD=0.70
 KALSHI_MODEL_PATH=kalshi_probability_model.json
 ```
 
@@ -58,7 +69,7 @@ KALSHI_MODEL_PATH=kalshi_probability_model.json
 ```bash
 pip install -r requirements-kalshi.txt
 
-# Dry run, one strategy tick per minute
+# Dry run (no real orders)
 python run_kalshi_bot.py --asset BTC
 
 # Live trading, real Kalshi limit orders
@@ -68,6 +79,60 @@ python run_kalshi_bot.py --asset BTC --live
 Set `KALSHI_BTC_SERIES_TICKER` or `KALSHI_BTC_TICKER_PREFIX` before live trading. Keyword discovery is now opt-in only via `KALSHI_ALLOW_KEYWORD_DISCOVERY=true`.
 
 The strategy entrypoint is `run_kalshi_multisignal_strategy()` in `core/strategy_brain/strategies/kalshi_multisignal_strategy.py`. It fetches the active Kalshi contract, retrieves Binance 1-minute BTCUSDT candles, computes RSI/MACD/CCI/Fisher/ADX/ATR plus Kalshi order-book signals, builds a structured feature snapshot, uses `kalshi_probability_model.json` when available, applies edge/spread/depth/confidence filters plus capped half-Kelly sizing, blocks duplicate entries for the same contract, and places a YES or NO limit order when risk gates pass.
+
+### Risk & Logic Changes Since Fork
+
+The following parameters and guards have been changed from the original repo. All values below show the **original** (crossed out) vs **current** (live on Railway).
+
+#### Risk Parameters
+
+| Parameter | Original | Current | Notes |
+|-----------|----------|---------|-------|
+| `KALSHI_MIN_EDGE_AFTER_FEES` | `0.025` (2.5%) | `0.05` (5%) | Doubled — original was too loose |
+| `KALSHI_EV_THRESHOLD` | `0.01` (1%) | `0.02` (2%) | Raised to match edge floor |
+| `KALSHI_MIN_MODEL_CONFIDENCE` | `0.20` | `0.50` | Was 0.20; raised to 0.50 for live |
+| `KALSHI_LATE_TRADE_CUTOFF_SECONDS` | `90` | `60` | Tighter late-entry window |
+| `KALSHI_BANKROLL` | `1000.00` | `20.00` | Live bankroll capped at $20 |
+| `KALSHI_MAX_TRADE_DOLLARS` | `25.00` | `8.00` | Max trade reduced to $8 |
+| `KALSHI_MAX_TOTAL_EXPOSURE` | `100.00` | `20.00` | Exposure capped at bankroll |
+| `KALSHI_MAX_DAILY_LOSS` | `50.00` | `20.00` | Daily loss cap matches bankroll |
+| `KALSHI_DRAWDOWN_SIZE_REDUCTION_THRESHOLD` | `0.70` | `0.70` | Unchanged |
+| `KALSHI_MAX_SPREAD_CENTS` | `3` | `3` | Unchanged |
+| `KALSHI_MIN_TOP_DEPTH` | `5` | `5` | Unchanged |
+| `KALSHI_KELLY_CAP` | `0.25` | `0.25` | Unchanged |
+| `KALSHI_KELLY_MULTIPLIER` | `0.50` | `0.50` | Unchanged |
+| `KALSHI_FEE_PER_CONTRACT` | `0.10` | `0.10` | Unchanged |
+
+#### New Guards Added (not in original)
+
+| Guard | Threshold | Reason |
+|-------|-----------|--------|
+| `KALSHI_MIN_PRICE_CENTS` | 18¢ minimum | Refuses to buy contracts below 18% odds |
+| `KALSHI_AVG_IN_EDGE_MULTIPLIER` | 1.5× | Allows averaging in only when edge exceeds 1.5× the minimum |
+| `KALSHI_HARD_LATE_ENTRY_CUTOFF_SECONDS` | 180s | Hard block on entries in last 3 minutes |
+| `KALSHI_MIN_PROBABILITY_GAP` | 0.05 | Rejects if model-to-market gap < 5% |
+| `KALSHI_MIN_MARKET_SIDE_PROB` | 0.08 | Rejects if market side prob < 8% (tail) |
+| `KALSHI_MAX_MARKET_SIDE_PROB` | 0.92 | Rejects if market side prob > 92% (tail) |
+| `KALSHI_LATE_WINDOW_SECONDS` | 420s | Separate 7-min late-window edge guard |
+| `KALSHI_LATE_WINDOW_MIN_EDGE` | 0.08 (8%) | Late-window edge must exceed 8% |
+| `KALSHI_LATE_WINDOW_MIN_CONFIDENCE` | 0.60 | Late-window requires ≥60% model confidence |
+
+#### Logic Changes
+
+- **Telegram alerts** — Original fired on any placed order. Now fires **only when `filled_qty > 0`** and includes `filled_qty` / `remaining_qty`.
+- **Averaging in** — Original blocked all re-entries with `already_traded_contract`. Now allows averaging in when edge exceeds `KALSHI_AVG_IN_EDGE_MULTIPLIER × KALSHI_MIN_EDGE_AFTER_FEES` (7.5% with defaults).
+- **Duplicate contract blocking** — Original blocked all returnees even if order was unfilled. Now checks Kalshi positions API: if you have no position, blocks; if you have a position, checks edge instead.
+- **`OrderResult` dataclass** — Added `filled_qty` and `remaining_qty` fields so Telegram and logging have actual fill data.
+
+#### Removed Guards
+
+| Guard | Original | Notes |
+|-------|----------|-------|
+| `KALSHI_MIN_EDGE_AFTER_FEES = 0.025` | 2.5% | Replaced by 5% |
+| `KALSHI_EV_THRESHOLD = 0.01` | 1% | Replaced by 2% |
+| `KALSHI_MIN_MODEL_CONFIDENCE = 0.20` | 0.20 | Replaced by 0.50 |
+| `KALSHI_LATE_TRADE_CUTOFF_SECONDS = 90` | 90s | Replaced by 60s |
+| `KALSHI_BANKROLL = 1000` | $1000 | Replaced by $20 |
 
 Strategy decisions are appended to `kalshi_trades.jsonl`. Adaptive signal weights are stored in `kalshi_signal_state.json`.
 
