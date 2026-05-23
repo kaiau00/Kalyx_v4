@@ -1,0 +1,48 @@
+{
+  "bull_2024": {
+    "avg_edge": 0.2800964187327777,
+    "avg_edge_losers": 0.2800964187327777,
+    "avg_edge_winners": 0.0,
+    "losing_trades": 726,
+    "max_drawdown": "17439.35",
+    "per_signal_accuracy": {
+      "atr_regime": 0.0,
+      "book_imbalance_d10": 0.0,
+      "book_imbalance_d20": 0.0,
+      "book_imbalance_d3": 0.0,
+      "book_imbalance_d5": 0.0,
+      "crowd_fade": 0.0,
+      "fisher": 0.0,
+      "market_probability": 0.0,
+      "rsi": 0.0
+    },
+    "per_signal_avg_edge": {
+      "atr_regime": 0.2800964187327777,
+      "book_imbalance_d10": 0.2800964187327777,
+      "book_imbalance_d20": 0.2800964187327777,
+      "book_imbalance_d3": 0.2800964187327777,
+      "book_imbalance_d5": 0.2800964187327777,
+      "crowd_fade": 0.2800964187327777,
+      "fisher": 0.2800964187327777,
+      "market_probability": 0.2800964187327777,
+      "rsi": 0.2800964187327777
+    },
+    "per_signal_count": {
+      "atr_regime": 726,
+      "book_imbalance_d10": 726,
+      "book_imbalance_d20": 726,
+      "book_imbalance_d3": 726,
+      "book_imbalance_d5": 726,
+      "crowd_fade": 726,
+      "fisher": 726,
+      "market_probability": 726,
+      "rsi": 726
+    },
+    "regime": "bull_2024",
+    "sharpe_annualized": 8.719537031250823,
+    "total_pnl": "-17439.35",
+    "total_trades": 726,
+    "win_rate": 0.0,
+    "winning_trades": 0
+  }
+}

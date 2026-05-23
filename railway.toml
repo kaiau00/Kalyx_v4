@@ -3,6 +3,6 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "python run_kalshi_bot.py --asset BTC --live"
+startCommand = "python -u run_kalshi_bot.py --asset BTC --live"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10

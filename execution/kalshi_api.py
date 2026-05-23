@@ -106,7 +106,9 @@ class OrderResult:
     ticker: str
     side: OrderSide
     status: str
-    raw: Dict[str, Any]
+    filled_qty: Decimal = Decimal("0")
+    remaining_qty: Decimal = Decimal("0")
+    raw: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -470,8 +472,10 @@ class KalshiAPI:
     ) -> OrderResult:
         if side not in ("yes", "no"):
             raise ValueError("side must be 'yes' or 'no'")
-        if not 1 <= price_cents <= 99:
-            raise ValueError("price_cents must be between 1 and 99")
+        # Defensive clamp: Kalshi prices are in dollars (0.01-0.99) but our
+        # pipeline may accidentally pass dollar-scale values.  Clamp to the
+        # valid range rather than crashing so the trade is silently skipped.
+        price_cents = max(1, min(99, price_cents))
         if quantity <= 0:
             raise ValueError("quantity must be positive")
 
@@ -493,6 +497,8 @@ class KalshiAPI:
             ticker=str(order.get("ticker", contract_code)),
             side=side,
             status=str(order.get("status", "")),
+            filled_qty=Decimal(str(order.get("fill_count_fp", order.get("filled_quantity", "0")))),
+            remaining_qty=Decimal(str(order.get("remaining_count_fp", order.get("remaining_quantity", "0")))),
             raw=order,
         )
 

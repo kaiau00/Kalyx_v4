@@ -36,6 +36,101 @@ class SignalValue:
     metadata: Dict[str, float]
 
 
+@dataclass
+class DeribitSignalInput:
+    """A snapshot of Deribit data to convert into signals."""
+    funding_rate_pct: float
+    funding_rate_direction: int       # -1, 0, or +1
+    funding_confidence: float         # 0-1
+    oi_direction: int                # -1, 0, or +1
+    oi_change_1h_pct: float
+    oi_confidence: float             # 0-1
+
+
+@dataclass
+class SentimentSignalInput:
+    score: float
+    classification: str = ""
+
+
+def deribit_signals(d: DeribitSignalInput) -> List[SignalValue]:
+    """
+    Convert Deribit funding rate and OI data into SignalValue objects.
+
+    - funding_rate_direction: positive → institutional funding long (bullish),
+      negative → funding short (bearish).  Funding > 0.01% or < -0.01% is significant.
+    - oi_spike: OI increasing → smart money accumulating; OI decreasing → unwinding.
+    - funding_oi_divergence: detects mismatch between funding direction and OI
+      direction (smart money rotating vs retail positioning).
+
+    Example:
+        snapshot = await deribit.get_snapshot()
+        signals = deribit_signals(DeribitSignalInput(
+            funding_rate_pct=snapshot.funding_rate_pct,
+            funding_rate_direction=snapshot.funding_rate_direction,
+            funding_confidence=snapshot.funding_confidence,
+            oi_direction=snapshot.oi_direction,
+            oi_change_1h_pct=snapshot.oi_change_1h_pct,
+            oi_confidence=snapshot.oi_confidence,
+        ))
+    """
+    signals: List[SignalValue] = []
+
+    # 1. Funding rate direction signal
+    if d.funding_confidence > 0:
+        signals.append(SignalValue(
+            "funding_rate",
+            float(d.funding_rate_direction),
+            d.funding_confidence,
+            {"funding_rate_pct": d.funding_rate_pct, "confidence": d.funding_confidence},
+        ))
+
+    # 2. Open interest spike signal
+    if d.oi_confidence > 0:
+        signals.append(SignalValue(
+            "open_interest",
+            float(d.oi_direction),
+            d.oi_confidence,
+            {"oi_change_1h_pct": d.oi_change_1h_pct, "confidence": d.oi_confidence},
+        ))
+
+    # 3. Funding/OI divergence signal
+    # When funding and OI point in opposite directions, it's a strong signal
+    # of institutional vs retail disagreement.
+    if d.funding_rate_direction and d.oi_direction and d.funding_confidence > 0 and d.oi_confidence > 0:
+        divergence = d.funding_rate_direction * d.oi_direction
+        divergence_value = float(d.funding_rate_direction if divergence > 0 else -d.funding_rate_direction)
+        signals.append(SignalValue(
+            "funding_oi_divergence",
+            divergence_value,
+            min(d.funding_confidence, d.oi_confidence),
+            {"funding_dir": d.funding_rate_direction, "oi_dir": d.oi_direction, "divergent": 1.0 if divergence < 0 else 0.0},
+        ))
+
+    return signals
+
+
+def sentiment_signals(sentiment: SentimentSignalInput) -> List[SignalValue]:
+    score = max(0.0, min(100.0, sentiment.score))
+    if score <= 25:
+        value = 1.0
+    elif score >= 75:
+        value = -1.0
+    else:
+        value = (50.0 - score) / 25.0
+    confidence = min(1.0, abs(score - 50.0) / 50.0)
+    if confidence <= 0:
+        return []
+    return [
+        SignalValue(
+            "fear_greed",
+            max(-1.0, min(1.0, value)),
+            confidence,
+            {"sentiment_score": score},
+        )
+    ]
+
+
 def _floats(values: Iterable[Decimal]) -> List[float]:
     return [float(value) for value in values]
 

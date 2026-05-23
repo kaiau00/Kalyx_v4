@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.kalshi.example
+.git
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.pem
+*.key
+kalshi_trades.jsonl
+kalshi_signal_state.json
+kalshi_learned_settlements.json
+paper_trades.json

@@ -6,7 +6,12 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 import httpx
-from loguru import logger
+try:
+    from loguru import logger
+except ImportError:  # pragma: no cover
+    import logging
+
+    logger = logging.getLogger(__name__)
 
 
 class NewsSocialDataSource:

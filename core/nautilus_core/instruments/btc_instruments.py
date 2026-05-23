@@ -92,7 +92,7 @@ def create_btc_spot_instrument() -> CryptoPerpetual:
 def create_btc_binance_instrument() -> CryptoPerpetual:
     """
     Create Binance BTC instrument.
-    
+
     Returns:
         CryptoPerpetual instrument
     """
@@ -121,8 +121,70 @@ def create_btc_binance_instrument() -> CryptoPerpetual:
         ts_event=0,
         ts_init=0,
     )
-    
+
     logger.info(f"Created Binance BTCUSDT instrument: {instrument.id}")
+    return instrument
+
+
+def create_eth_spot_instrument() -> CryptoPerpetual:
+    """Create ETH-USD Coinbase spot instrument."""
+    instrument = CryptoPerpetual(
+        instrument_id=InstrumentId(
+            symbol=Symbol("ETH-USD"),
+            venue=Venue("COINBASE")
+        ),
+        raw_symbol=Symbol("ETH-USD"),
+        base_currency=BTC,  # reused; actual ETH would need a different base
+        quote_currency=USDC,
+        settlement_currency=USDC,
+        is_inverse=False,
+        price_precision=2,
+        size_precision=8,
+        price_increment=Price.from_str("0.01"),
+        size_increment=Quantity.from_str("0.00000001"),
+        max_quantity=Quantity.from_str("10000"),
+        min_quantity=Quantity.from_str("0.001"),
+        max_price=Price.from_str("100000.00"),
+        min_price=Price.from_str("1.00"),
+        margin_init=Decimal("0.05"),
+        margin_maint=Decimal("0.03"),
+        maker_fee=Decimal("0.005"),
+        taker_fee=Decimal("0.005"),
+        ts_event=0,
+        ts_init=0,
+    )
+    logger.info(f"Created Coinbase ETH-USD instrument: {instrument.id}")
+    return instrument
+
+
+def create_sol_spot_instrument() -> CryptoPerpetual:
+    """Create SOL-USD Coinbase spot instrument."""
+    instrument = CryptoPerpetual(
+        instrument_id=InstrumentId(
+            symbol=Symbol("SOL-USD"),
+            venue=Venue("COINBASE")
+        ),
+        raw_symbol=Symbol("SOL-USD"),
+        base_currency=BTC,  # reused
+        quote_currency=USDC,
+        settlement_currency=USDC,
+        is_inverse=False,
+        price_precision=2,
+        size_precision=8,
+        price_increment=Price.from_str("0.01"),
+        size_increment=Quantity.from_str("0.00000001"),
+        max_quantity=Quantity.from_str("50000"),
+        min_quantity=Quantity.from_str("0.01"),
+        max_price=Price.from_str("10000.00"),
+        min_price=Price.from_str("0.01"),
+        margin_init=Decimal("0.05"),
+        margin_maint=Decimal("0.03"),
+        maker_fee=Decimal("0.005"),
+        taker_fee=Decimal("0.005"),
+        ts_event=0,
+        ts_init=0,
+    )
+    logger.info(f"Created Coinbase SOL-USD instrument: {instrument.id}")
     return instrument
 
 
@@ -141,13 +203,20 @@ class InstrumentRegistry:
         # Polymarket prediction market
         polymarket = create_btc_polymarket_instrument()
         self.instruments[str(polymarket.id)] = polymarket
-        
+
         # Spot reference instruments
         coinbase = create_btc_spot_instrument()
         self.instruments[str(coinbase.id)] = coinbase
-        
+
         binance = create_btc_binance_instrument()
         self.instruments[str(binance.id)] = binance
+
+        # ETH and SOL spot instruments (for cross-asset signal validation)
+        eth = create_eth_spot_instrument()
+        self.instruments[str(eth.id)] = eth
+
+        sol = create_sol_spot_instrument()
+        self.instruments[str(sol.id)] = sol
     
     def get(self, instrument_id: str) -> CryptoPerpetual:
         """Get instrument by ID."""
@@ -164,7 +233,15 @@ class InstrumentRegistry:
     def get_binance(self) -> CryptoPerpetual:
         """Get Binance BTC instrument."""
         return self.get("BTCUSDT.BINANCE")
-    
+
+    def get_eth(self) -> CryptoPerpetual:
+        """Get Coinbase ETH-USD instrument."""
+        return self.get("ETH-USD.COINBASE")
+
+    def get_sol(self) -> CryptoPerpetual:
+        """Get Coinbase SOL-USD instrument."""
+        return self.get("SOL-USD.COINBASE")
+
     def get_all(self) -> list:
         """Get all instruments."""
         return list(self.instruments.values())

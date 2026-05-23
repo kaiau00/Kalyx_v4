@@ -77,6 +77,8 @@ def build_feature_snapshot(
     now: datetime,
     raw_fusion_probability: float,
     spread_at_open: Optional[float] = None,
+    asset: str = "BTC",
+    extra_features: Optional[Dict[str, float]] = None,
 ) -> KalshiFeatureSnapshot:
     closes = [float(candle.close) for candle in candles]
     spot_price = closes[-1] if closes else 0.0
@@ -107,6 +109,9 @@ def build_feature_snapshot(
     momentum_decay = _return_over(closes, 1) - _return_over(closes, 5)
 
     features = {
+        "asset_is_btc": 1.0 if asset.upper() == "BTC" else 0.0,
+        "asset_is_eth": 1.0 if asset.upper() == "ETH" else 0.0,
+        "asset_is_sol": 1.0 if asset.upper() == "SOL" else 0.0,
         "spot_price": spot_price,
         "spot_return_30s": ((float(candles[-1].close) / float(candles[-1].open)) - 1.0) if candles and candles[-1].open > 0 else 0.0,
         "spot_return_1m": _return_over(closes, 1),
@@ -135,10 +140,17 @@ def build_feature_snapshot(
         "momentum_decay": momentum_decay,
         "spread_change_pct": spread_change_pct,
     }
+    if extra_features:
+        for key, value in extra_features.items():
+            name = str(key)
+            if name in features:
+                continue
+            features[name] = float(value)
 
     return KalshiFeatureSnapshot(
         features=features,
         metadata={
+            "asset": asset.upper(),
             "contract": contract.ticker,
             "contract_open_time": contract.open_time.isoformat() if contract.open_time else None,
             "contract_close_time": contract.close_time.isoformat() if contract.close_time else None,

@@ -1,0 +1,18 @@
+{
+  "bull_2024": {
+    "avg_edge": 0.0,
+    "avg_edge_losers": 0.0,
+    "avg_edge_winners": 0.0,
+    "losing_trades": 0,
+    "max_drawdown": "0.0",
+    "per_signal_accuracy": {},
+    "per_signal_avg_edge": {},
+    "per_signal_count": {},
+    "regime": "bull_2024",
+    "sharpe_annualized": 0.0,
+    "total_pnl": "0",
+    "total_trades": 0,
+    "win_rate": 0.0,
+    "winning_trades": 0
+  }
+}

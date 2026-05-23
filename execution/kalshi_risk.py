@@ -22,9 +22,17 @@ class KalshiRiskConfig:
     min_edge_after_fees: Decimal = Decimal("0.03")
     max_spread_cents: int = 6
     min_top_depth: Decimal = Decimal("5")
-    min_model_confidence: Decimal = Decimal("0.20")
+    min_model_confidence: Decimal = Decimal("0.50")
     late_trade_cutoff_seconds: int = 60
+    hard_late_entry_cutoff_seconds: int = 180
+    min_probability_gap: Decimal = Decimal("0.05")
+    min_market_side_prob: Decimal = Decimal("0.08")
+    max_market_side_prob: Decimal = Decimal("0.92")
+    late_window_seconds: int = 420
+    late_window_min_edge: Decimal = Decimal("0.08")
+    late_window_min_confidence: Decimal = Decimal("0.60")
     drawdown_size_reduction_threshold: Decimal = Decimal("0.50")
+    min_price_cents: int = 18
 
 
 @dataclass
@@ -106,6 +114,9 @@ def build_trade_intent(
     edge_after_fees = ev
 
     mins_to_expiry = minutes_to_expiry if minutes_to_expiry is not None else (seconds_to_expiry / 60.0 if seconds_to_expiry is not None else None)
+    market_side_prob = None
+    if market_prob_dec is not None:
+        market_side_prob = market_prob_dec if side == "yes" else Decimal("1") - market_prob_dec
 
     if ev < config.ev_threshold:
         return TradeIntent(False, side, price, int(price * 100), 0, ev, Decimal("0"), "ev_below_threshold", market_prob_dec, edge, edge_after_fees)
@@ -119,6 +130,21 @@ def build_trade_intent(
         return TradeIntent(False, side, price, int(price * 100), 0, ev, Decimal("0"), "spread_too_wide", market_prob_dec, edge, edge_after_fees)
     if top_depth is not None and top_depth < config.min_top_depth:
         return TradeIntent(False, side, price, int(price * 100), 0, ev, Decimal("0"), "insufficient_top_depth", market_prob_dec, edge, edge_after_fees)
+    if seconds_to_expiry is not None and seconds_to_expiry <= config.hard_late_entry_cutoff_seconds:
+        return TradeIntent(False, side, price, int(price * 100), 0, ev, Decimal("0"), "late_entry_hard_cutoff", market_prob_dec, edge, edge_after_fees)
+    if seconds_to_expiry is not None and seconds_to_expiry <= config.late_window_seconds:
+        if edge_after_fees < config.late_window_min_edge:
+            return TradeIntent(False, side, price, int(price * 100), 0, ev, Decimal("0"), "late_window_edge_too_small", market_prob_dec, edge, edge_after_fees)
+        if model_confidence is not None and Decimal(str(model_confidence)) < config.late_window_min_confidence:
+            return TradeIntent(False, side, price, int(price * 100), 0, ev, Decimal("0"), "late_window_confidence_too_low", market_prob_dec, edge, edge_after_fees)
+    if market_side_prob is not None and abs(edge) < config.min_probability_gap:
+        return TradeIntent(False, side, price, int(price * 100), 0, ev, Decimal("0"), "probability_gap_too_small", market_prob_dec, edge, edge_after_fees)
+    if market_side_prob is not None and (
+        market_side_prob < config.min_market_side_prob or market_side_prob > config.max_market_side_prob
+    ):
+        return TradeIntent(False, side, price, int(price * 100), 0, ev, Decimal("0"), "tail_contract_probability", market_prob_dec, edge, edge_after_fees)
+    if price < Decimal(config.min_price_cents) / Decimal("100"):
+        return TradeIntent(False, side, price, int(price * 100), 0, ev, Decimal("0"), f"price_below_min_{config.min_price_cents}c", market_prob_dec, edge, edge_after_fees)
     if seconds_to_expiry is not None and seconds_to_expiry <= config.late_trade_cutoff_seconds and edge_after_fees < config.min_edge_after_fees * Decimal("2"):
         return TradeIntent(False, side, price, int(price * 100), 0, ev, Decimal("0"), "late_trade_edge_too_small", market_prob_dec, edge, edge_after_fees)
     if daily_pnl <= -config.max_daily_loss:
@@ -149,10 +175,15 @@ def build_trade_intent(
         config.max_total_exposure - current_exposure,
     )
     contract_cost = price + config.fee_per_contract
-    quantity = int((trade_budget / contract_cost).to_integral_value(rounding=ROUND_FLOOR)) if contract_cost > 0 else 0
-    limit_price_cents = int((price * 100).to_integral_value(rounding=ROUND_FLOOR))
-
+    # Minimum budget needed for at least 1 contract
+    min_budget = contract_cost
+    if trade_budget < min_budget:
+        return TradeIntent(
+            False, side, price, int(price * 100), 0, ev, kelly_fraction,
+            "quantity_zero", market_prob_dec, edge, edge_after_fees, sizing_multiplier,
+        )
+    quantity = max(1, int((trade_budget / contract_cost).to_integral_value(rounding=ROUND_FLOOR)))
     if quantity <= 0:
-        return TradeIntent(False, side, price, limit_price_cents, 0, ev, kelly_fraction, "quantity_zero", market_prob_dec, edge, edge_after_fees, sizing_multiplier)
+        return TradeIntent(False, side, price, int(price * 100), 0, ev, kelly_fraction, "quantity_zero", market_prob_dec, edge, edge_after_fees, sizing_multiplier)
 
-    return TradeIntent(True, side, price, limit_price_cents, quantity, ev, kelly_fraction, "ok", market_prob_dec, edge, edge_after_fees, sizing_multiplier)
+    return TradeIntent(True, side, price, int(price * 100), quantity, ev, kelly_fraction, "ok", market_prob_dec, edge, edge_after_fees, sizing_multiplier)

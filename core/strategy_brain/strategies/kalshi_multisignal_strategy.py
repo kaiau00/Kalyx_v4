@@ -23,14 +23,21 @@ from core.strategy_brain.kalshi_fusion import FusedKalshiSignal, KalshiSignalFus
 from core.strategy_brain.kalshi_features import build_feature_snapshot
 from core.strategy_brain.kalshi_indicators import (
     Candle,
+    DeribitSignalInput,
+    SentimentSignalInput,
     SignalValue,
     compute_indicators,
+    deribit_signals,
     kalshi_market_signals,
     normalize_indicators,
+    sentiment_signals,
+    timeframe_disagreement_signal,
 )
-from core.strategy_brain.kalshi_model import KalshiModelPrediction, KalshiProbabilityModel
+from core.strategy_brain.kalshi_model import KalshiModelPrediction, load_probability_model
 from data_sources.binance.rest import BinanceRESTSource
 from data_sources.coinbase.rest import CoinbaseRESTSource
+from data_sources.deribit.rest import DeribitDataSource
+from data_sources.news_social.adapter import NewsSocialDataSource
 from execution.kalshi_api import KalshiAPI, OrderBookSnapshot, OrderResult
 from execution.kalshi_risk import KalshiRiskConfig, TradeIntent, build_trade_intent
 
@@ -83,14 +90,22 @@ def load_risk_config() -> KalshiRiskConfig:
         max_trade_dollars=_decimal_env("KALSHI_MAX_TRADE_DOLLARS", "25.00"),
         max_daily_loss=_decimal_env("KALSHI_MAX_DAILY_LOSS", "50.00"),
         max_total_exposure=_decimal_env("KALSHI_MAX_TOTAL_EXPOSURE", "100.00"),
-        ev_threshold=_decimal_env("KALSHI_EV_THRESHOLD", "0.01"),
+        ev_threshold=_decimal_env("KALSHI_EV_THRESHOLD", "0.02"),
         fee_per_contract=_decimal_env("KALSHI_FEE_PER_CONTRACT", "0.10"),
-        min_edge_after_fees=_decimal_env("KALSHI_MIN_EDGE_AFTER_FEES", "0.03"),
+        min_edge_after_fees=_decimal_env("KALSHI_MIN_EDGE_AFTER_FEES", "0.05"),
         max_spread_cents=int(os.getenv("KALSHI_MAX_SPREAD_CENTS", "6")),
         min_top_depth=_decimal_env("KALSHI_MIN_TOP_DEPTH", "5"),
-        min_model_confidence=_decimal_env("KALSHI_MIN_MODEL_CONFIDENCE", "0.20"),
+        min_model_confidence=_decimal_env("KALSHI_MIN_MODEL_CONFIDENCE", "0.50"),
         late_trade_cutoff_seconds=int(os.getenv("KALSHI_LATE_TRADE_CUTOFF_SECONDS", "60")),
+        hard_late_entry_cutoff_seconds=int(os.getenv("KALSHI_HARD_LATE_ENTRY_CUTOFF_SECONDS", "180")),
+        min_probability_gap=_decimal_env("KALSHI_MIN_PROBABILITY_GAP", "0.05"),
+        min_market_side_prob=_decimal_env("KALSHI_MIN_MARKET_SIDE_PROB", "0.08"),
+        max_market_side_prob=_decimal_env("KALSHI_MAX_MARKET_SIDE_PROB", "0.92"),
+        late_window_seconds=int(os.getenv("KALSHI_LATE_WINDOW_SECONDS", "420")),
+        late_window_min_edge=_decimal_env("KALSHI_LATE_WINDOW_MIN_EDGE", "0.08"),
+        late_window_min_confidence=_decimal_env("KALSHI_LATE_WINDOW_MIN_CONFIDENCE", "0.60"),
         drawdown_size_reduction_threshold=_decimal_env("KALSHI_DRAWDOWN_SIZE_REDUCTION_THRESHOLD", "0.50"),
+        min_price_cents=int(os.getenv("KALSHI_MIN_PRICE_CENTS", "18")),
     )
 
 
@@ -314,7 +329,28 @@ async def update_kalshi_weights_from_settlements(
             signals = [_signal_from_record(row) for row in learning_record.get("signals", [])]
             if not signals:
                 continue
-            fusion.update_from_outcome(signals, yes_won=settlement.result == "yes")
+            updated_weights = fusion.update_from_outcome(signals, yes_won=settlement.result == "yes")
+            try:
+                from monitoring.grafana_exporter import get_grafana_exporter
+                from monitoring.performance_tracker import get_performance_tracker
+
+                exporter = get_grafana_exporter()
+                tracker = get_performance_tracker()
+                edge_after_fees = float(learning_record.get("edge_after_fees", learning_record.get("edge", 0.0)) or 0.0)
+                tracker.record_edge(edge_after_fees)
+                exporter.record_edge(edge_after_fees)
+                tracker.record_signal_weights(updated_weights, settlement.settled_time or datetime.now(timezone.utc))
+                exporter.record_signal_weights(updated_weights)
+                for signal in signals:
+                    correct = bool(signal.value * (1.0 if settlement.result == "yes" else -1.0) > 0)
+                    weight = updated_weights.get(signal.name, 0.0)
+                    tracker.record_signal_attribution(signal.name, edge_after_fees, correct, weight)
+                    exporter.record_signal_attribution(signal.name, edge_after_fees, correct, weight)
+                if settlement.close_time and settlement.settled_time:
+                    tracker.record_settlement_latency(settlement.close_time, settlement.settled_time)
+                    exporter.record_settlement_latency(settlement.close_time, settlement.settled_time)
+            except Exception as exc:
+                logger.debug(f"Performance attribution update skipped: {exc}")
             trade_record = next((record for record in reversed(records) if _has_filled_live_order(record)), None)
             if trade_record:
                 update = _build_settlement_update(trade_record, settlement.result)
@@ -341,10 +377,19 @@ async def _current_exposure(kalshi: KalshiAPI, dry_run: bool) -> Optional[Decima
 
 
 async def _current_daily_pnl(kalshi: KalshiAPI, dry_run: bool) -> Optional[Decimal]:
+    return await _current_daily_pnl_at(kalshi, dry_run, now=datetime.now(timezone.utc))
+
+
+async def _current_daily_pnl_at(
+    kalshi: KalshiAPI,
+    dry_run: bool,
+    *,
+    now: datetime,
+) -> Optional[Decimal]:
     if dry_run:
         return Decimal("0")
 
-    start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
     try:
         settlements = await kalshi.get_settlements(start=start_of_day)
     except Exception as exc:
@@ -373,11 +418,48 @@ async def _current_daily_pnl(kalshi: KalshiAPI, dry_run: bool) -> Optional[Decim
     return realized_pnl
 
 
-def _default_candle_source():
+def _default_coinbase_product(asset: str) -> str:
+    return os.getenv(f"KALSHI_{asset.upper()}_COINBASE_PRODUCT", f"{asset.upper()}-USD")
+
+
+def _default_binance_symbol(asset: str) -> str:
+    return os.getenv(f"KALSHI_{asset.upper()}_SPOT_SYMBOL", f"{asset.upper()}USDT")
+
+
+def _signal_feature_map(signals: List[SignalValue]) -> Dict[str, float]:
+    feature_map: Dict[str, float] = {}
+    for signal in signals:
+        feature_map[signal.name] = float(signal.value)
+    return feature_map
+
+
+async def _optional_sentiment_signals() -> List[SignalValue]:
+    if os.getenv("KALSHI_ENABLE_SENTIMENT_SIGNAL", "false").lower() not in {"1", "true", "yes"}:
+        return []
+    source = NewsSocialDataSource()
+    try:
+        await source.connect()
+        sentiment = await source.get_fear_greed_index()
+        if not sentiment:
+            return []
+        return sentiment_signals(
+            SentimentSignalInput(
+                score=float(sentiment["value"]),
+                classification=str(sentiment.get("classification", "")),
+            )
+        )
+    except Exception as exc:
+        logger.debug(f"Sentiment signal fetch skipped: {exc}")
+        return []
+    finally:
+        await source.disconnect()
+
+
+def _default_candle_source(asset: str):
     provider = os.getenv("KALSHI_CANDLE_PROVIDER", "coinbase").lower()
     if provider == "binance":
-        return BinanceRESTSource(symbol=os.getenv("KALSHI_SPOT_SYMBOL", "BTCUSDT"))
-    return CoinbaseRESTSource(product_id=os.getenv("KALSHI_COINBASE_PRODUCT", "BTC-USD"))
+        return BinanceRESTSource(symbol=_default_binance_symbol(asset))
+    return CoinbaseRESTSource(product_id=_default_coinbase_product(asset))
 
 
 async def run_kalshi_multisignal_strategy(
@@ -385,20 +467,21 @@ async def run_kalshi_multisignal_strategy(
     kalshi: Optional[KalshiAPI] = None,
     candle_source: Optional[BinanceRESTSource] = None,
     fusion: Optional[KalshiSignalFusion] = None,
-    probability_model: Optional[KalshiProbabilityModel] = None,
+    probability_model: Optional[Any] = None,
     asset: str = "BTC",
     dry_run: Optional[bool] = None,
+    now: Optional[datetime] = None,
 ) -> StrategyRunResult:
     own_kalshi = kalshi is None
     own_candles = candle_source is None
     kalshi = kalshi or KalshiAPI()
-    candle_source = candle_source or _default_candle_source()
+    candle_source = candle_source or _default_candle_source(asset)
     fusion = fusion or KalshiSignalFusion(state_path=os.getenv("KALSHI_SIGNAL_STATE", "kalshi_signal_state.json"))
-    probability_model = probability_model or KalshiProbabilityModel()
+    probability_model = probability_model or load_probability_model()
     dry_run = dry_run if dry_run is not None else os.getenv("KALSHI_DRY_RUN", "true").lower() in {"1", "true", "yes"}
 
     try:
-        now = datetime.now(timezone.utc)
+        now = now or datetime.now(timezone.utc)
         contract = await kalshi.get_active_15m_contract(asset=asset, now=now)
         if not contract:
             return StrategyRunResult(now, None, None, None, None, None, dry_run, "no_active_contract")
@@ -409,6 +492,7 @@ async def run_kalshi_multisignal_strategy(
         open_state = _CONTRACT_OPEN_STATES.get(contract.ticker)
         if open_state is None:
             spread_at_open = None
+            no_ask = contract.no_ask
             if contract.yes_bid is not None and contract.yes_ask is not None:
                 spread_at_open = float((contract.yes_ask - contract.yes_bid) * 100)
             elif contract.yes_bid is not None and no_ask is not None:
@@ -426,7 +510,7 @@ async def run_kalshi_multisignal_strategy(
         candle_limit = int(os.getenv("KALSHI_CANDLE_LIMIT", "120"))
         candle_rows = await candle_source.get_klines(interval="1m", limit=candle_limit)
         if len(candle_rows) < 35 and own_candles and isinstance(candle_source, BinanceRESTSource):
-            fallback = CoinbaseRESTSource(product_id=os.getenv("KALSHI_COINBASE_PRODUCT", "BTC-USD"))
+            fallback = CoinbaseRESTSource(product_id=_default_coinbase_product(asset))
             try:
                 logger.info("Falling back to Coinbase candles after Binance returned insufficient data")
                 candle_rows = await fallback.get_klines(interval="1m", limit=candle_limit)
@@ -440,6 +524,29 @@ async def run_kalshi_multisignal_strategy(
         indicator_snapshot = compute_indicators(candles)
         signals: List[SignalValue] = normalize_indicators(indicator_snapshot, candles)
         signals.extend(kalshi_market_signals(orderbook))
+
+        # ── Deribit funding rate + OI signals ──────────────────────────────────
+        if os.getenv("KALSHI_ENABLE_DERIBIT_SIGNALS", "true").lower() in {"1", "true", "yes"}:
+            try:
+                deribit = DeribitDataSource(
+                    use_testnet=os.getenv("DERIBIT_TEST", "").lower() in {"1", "true", "yes"},
+                    timeout=10.0,
+                )
+                deribit_snapshot = await deribit.get_snapshot()
+                await deribit.close()
+                if deribit_snapshot is not None:
+                    deribit_input = DeribitSignalInput(
+                        funding_rate_pct=deribit_snapshot.funding_rate_pct,
+                        funding_rate_direction=deribit_snapshot.funding_rate_direction,
+                        funding_confidence=deribit_snapshot.funding_confidence,
+                        oi_direction=deribit_snapshot.oi_direction,
+                        oi_change_1h_pct=deribit_snapshot.oi_change_1h_pct,
+                        oi_confidence=deribit_snapshot.oi_confidence,
+                    )
+                    signals.extend(deribit_signals(deribit_input))
+            except Exception as exc:
+                logger.debug(f"Deribit signal fetch skipped: {exc}")
+        signals.extend(await _optional_sentiment_signals())
 
         fused: FusedKalshiSignal = fusion.fuse(signals)
 
@@ -470,6 +577,8 @@ async def run_kalshi_multisignal_strategy(
             now=now,
             raw_fusion_probability=fused.predicted_prob,
             spread_at_open=open_state.spread_at_open if open_state else None,
+            asset=asset,
+            extra_features=_signal_feature_map(signals),
         )
         model_prediction: KalshiModelPrediction = probability_model.predict(
             feature_snapshot,
@@ -478,7 +587,7 @@ async def run_kalshi_multisignal_strategy(
         )
         risk_config = load_risk_config()
         exposure = await _current_exposure(kalshi, dry_run)
-        daily_pnl = await _current_daily_pnl(kalshi, dry_run)
+        daily_pnl = await _current_daily_pnl_at(kalshi, dry_run, now=now)
 
         edge_market_prob = market_midpoint if market_midpoint is not None else market_probability
         minutes_to_expiry = feature_snapshot.features["minutes_to_expiry"]
@@ -530,6 +639,7 @@ async def run_kalshi_multisignal_strategy(
                 "model_confidence": model_prediction.confidence,
                 "model_version": model_prediction.model_version,
                 "model_fallback_used": model_prediction.fallback_used,
+                "model_eval_metrics": model_prediction.eval_metrics,
                 "market_probability": market_probability,
                 "features": feature_snapshot.features,
                 "feature_metadata": feature_snapshot.metadata,

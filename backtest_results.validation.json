@@ -1,0 +1,140 @@
+{
+  "bear_2024": {
+    "avg_edge": -0.10412915851272014,
+    "avg_edge_losers": -0.10412915851272014,
+    "avg_edge_winners": 0.0,
+    "losing_trades": 511,
+    "max_drawdown": "12366.17",
+    "per_signal_accuracy": {
+      "atr_regime": 0.0,
+      "book_imbalance_d10": 0.0,
+      "book_imbalance_d20": 0.0,
+      "book_imbalance_d3": 0.0,
+      "book_imbalance_d5": 0.0,
+      "crowd_fade": 0.0,
+      "fisher": 0.0,
+      "market_probability": 0.0,
+      "rsi": 0.0
+    },
+    "per_signal_avg_edge": {
+      "atr_regime": -0.10412915851272014,
+      "book_imbalance_d10": -0.10412915851272014,
+      "book_imbalance_d20": -0.10412915851272014,
+      "book_imbalance_d3": -0.10412915851272014,
+      "book_imbalance_d5": -0.10412915851272014,
+      "crowd_fade": -0.10412915851272014,
+      "fisher": -0.10412915851272014,
+      "market_probability": -0.10412915851272014,
+      "rsi": -0.10412915851272014
+    },
+    "per_signal_count": {
+      "atr_regime": 511,
+      "book_imbalance_d10": 511,
+      "book_imbalance_d20": 511,
+      "book_imbalance_d3": 511,
+      "book_imbalance_d5": 511,
+      "crowd_fade": 511,
+      "fisher": 511,
+      "market_probability": 511,
+      "rsi": 511
+    },
+    "regime": "bear_2024",
+    "sharpe_annualized": -2.018793425122144,
+    "total_pnl": "-12366.17",
+    "total_trades": 511,
+    "win_rate": 0.0,
+    "winning_trades": 0
+  },
+  "bull_2024": {
+    "avg_edge": 0.2800964187327824,
+    "avg_edge_losers": 0.2800964187327824,
+    "avg_edge_winners": 0.0,
+    "losing_trades": 726,
+    "max_drawdown": "17439.35",
+    "per_signal_accuracy": {
+      "atr_regime": 0.0,
+      "book_imbalance_d10": 0.0,
+      "book_imbalance_d20": 0.0,
+      "book_imbalance_d3": 0.0,
+      "book_imbalance_d5": 0.0,
+      "crowd_fade": 0.0,
+      "fisher": 0.0,
+      "market_probability": 0.0,
+      "rsi": 0.0
+    },
+    "per_signal_avg_edge": {
+      "atr_regime": 0.2800964187327824,
+      "book_imbalance_d10": 0.2800964187327824,
+      "book_imbalance_d20": 0.2800964187327824,
+      "book_imbalance_d3": 0.2800964187327824,
+      "book_imbalance_d5": 0.2800964187327824,
+      "crowd_fade": 0.2800964187327824,
+      "fisher": 0.2800964187327824,
+      "market_probability": 0.2800964187327824,
+      "rsi": 0.2800964187327824
+    },
+    "per_signal_count": {
+      "atr_regime": 726,
+      "book_imbalance_d10": 726,
+      "book_imbalance_d20": 726,
+      "book_imbalance_d3": 726,
+      "book_imbalance_d5": 726,
+      "crowd_fade": 726,
+      "fisher": 726,
+      "market_probability": 726,
+      "rsi": 726
+    },
+    "regime": "bull_2024",
+    "sharpe_annualized": 8.719537031250896,
+    "total_pnl": "-17439.35",
+    "total_trades": 726,
+    "win_rate": 0.0,
+    "winning_trades": 0
+  },
+  "sideways_2024_2025": {
+    "avg_edge": -0.10302371541501976,
+    "avg_edge_losers": -0.10302371541501976,
+    "avg_edge_winners": 0.0,
+    "losing_trades": 506,
+    "max_drawdown": "12244.91",
+    "per_signal_accuracy": {
+      "atr_regime": 0.0,
+      "book_imbalance_d10": 0.0,
+      "book_imbalance_d20": 0.0,
+      "book_imbalance_d3": 0.0,
+      "book_imbalance_d5": 0.0,
+      "crowd_fade": 0.0,
+      "fisher": 0.0,
+      "market_probability": 0.0,
+      "rsi": 0.0
+    },
+    "per_signal_avg_edge": {
+      "atr_regime": -0.10302371541501976,
+      "book_imbalance_d10": -0.10302371541501976,
+      "book_imbalance_d20": -0.10302371541501976,
+      "book_imbalance_d3": -0.10302371541501976,
+      "book_imbalance_d5": -0.10302371541501976,
+      "crowd_fade": -0.10302371541501976,
+      "fisher": -0.10302371541501976,
+      "market_probability": -0.10302371541501976,
+      "rsi": -0.10302371541501976
+    },
+    "per_signal_count": {
+      "atr_regime": 506,
+      "book_imbalance_d10": 506,
+      "book_imbalance_d20": 506,
+      "book_imbalance_d3": 506,
+      "book_imbalance_d5": 506,
+      "crowd_fade": 506,
+      "fisher": 506,
+      "market_probability": 506,
+      "rsi": 506
+    },
+    "regime": "sideways_2024_2025",
+    "sharpe_annualized": -1.9974413659113235,
+    "total_pnl": "-12244.91",
+    "total_trades": 506,
+    "win_rate": 0.0,
+    "winning_trades": 0
+  }
+}

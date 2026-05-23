@@ -26,6 +26,10 @@ DEFAULT_SIGNAL_NAMES = [
     "market_probability",
     "crowd_fade",
     "timeframe_disagreement",
+    "funding_rate",
+    "open_interest",
+    "funding_oi_divergence",
+    "fear_greed",
 ]
 
 

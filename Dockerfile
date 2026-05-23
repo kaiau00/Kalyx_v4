@@ -10,4 +10,4 @@ RUN pip install --no-cache-dir -r requirements-kalshi.txt
 
 COPY . .
 
-CMD ["python", "run_kalshi_bot.py", "--asset", "BTC", "--live"]
+CMD ["python", "-u", "run_kalshi_bot.py", "--asset", "BTC", "--live"]

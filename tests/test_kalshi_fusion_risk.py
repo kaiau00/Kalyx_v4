@@ -225,3 +225,141 @@ def test_trade_intent_early_window_noise_filter():
     )
     assert not rejected.should_trade
     assert rejected.reason == "early_window_low_edge"
+
+
+def test_trade_intent_rejects_small_probability_gap():
+    intent = build_trade_intent(
+        predicted_prob=0.54,
+        yes_ask=Decimal("0.45"),
+        no_ask=Decimal("0.55"),
+        market_probability=0.51,
+        config=KalshiRiskConfig(
+            fee_per_contract=Decimal("0.01"),
+            min_edge_after_fees=Decimal("0.01"),
+            min_probability_gap=Decimal("0.05"),
+            min_model_confidence=Decimal("0.20"),
+        ),
+        model_confidence=0.80,
+    )
+
+    assert not intent.should_trade
+    assert intent.reason == "probability_gap_too_small"
+
+
+def test_trade_intent_rejects_tail_contract_probability():
+    intent = build_trade_intent(
+        predicted_prob=0.97,
+        yes_ask=Decimal("0.90"),
+        no_ask=Decimal("0.10"),
+        market_probability=0.95,
+        config=KalshiRiskConfig(
+            fee_per_contract=Decimal("0.01"),
+            min_edge_after_fees=Decimal("0.01"),
+            min_probability_gap=Decimal("0.01"),
+            min_model_confidence=Decimal("0.20"),
+            min_market_side_prob=Decimal("0.08"),
+            max_market_side_prob=Decimal("0.92"),
+        ),
+        model_confidence=0.90,
+    )
+
+    assert not intent.should_trade
+    assert intent.reason == "tail_contract_probability"
+
+
+def test_trade_intent_rejects_hard_late_entry_cutoff():
+    intent = build_trade_intent(
+        predicted_prob=0.80,
+        yes_ask=Decimal("0.45"),
+        no_ask=Decimal("0.55"),
+        market_probability=0.40,
+        config=KalshiRiskConfig(
+            fee_per_contract=Decimal("0.01"),
+            min_edge_after_fees=Decimal("0.01"),
+            min_probability_gap=Decimal("0.01"),
+            min_model_confidence=Decimal("0.20"),
+            hard_late_entry_cutoff_seconds=180,
+        ),
+        model_confidence=0.90,
+        seconds_to_expiry=120,
+        minutes_to_expiry=2.0,
+    )
+
+    assert not intent.should_trade
+    assert intent.reason == "late_entry_hard_cutoff"
+
+
+def test_trade_intent_rejects_late_window_edge():
+    intent = build_trade_intent(
+        predicted_prob=0.70,
+        yes_ask=Decimal("0.45"),
+        no_ask=Decimal("0.55"),
+        market_probability=0.45,
+        config=KalshiRiskConfig(
+            fee_per_contract=Decimal("0.01"),
+            min_edge_after_fees=Decimal("0.01"),
+            min_probability_gap=Decimal("0.01"),
+            min_model_confidence=Decimal("0.20"),
+            late_window_seconds=420,
+            late_window_min_edge=Decimal("0.30"),
+            hard_late_entry_cutoff_seconds=120,
+        ),
+        model_confidence=0.90,
+        seconds_to_expiry=300,
+        minutes_to_expiry=5.0,
+    )
+
+    assert not intent.should_trade
+    assert intent.reason == "late_window_edge_too_small"
+
+
+def test_trade_intent_rejects_late_window_confidence():
+    intent = build_trade_intent(
+        predicted_prob=0.80,
+        yes_ask=Decimal("0.45"),
+        no_ask=Decimal("0.55"),
+        market_probability=0.40,
+        config=KalshiRiskConfig(
+            fee_per_contract=Decimal("0.01"),
+            min_edge_after_fees=Decimal("0.01"),
+            min_probability_gap=Decimal("0.01"),
+            min_model_confidence=Decimal("0.20"),
+            late_window_seconds=420,
+            late_window_min_edge=Decimal("0.05"),
+            late_window_min_confidence=Decimal("0.80"),
+            hard_late_entry_cutoff_seconds=120,
+        ),
+        model_confidence=0.70,
+        seconds_to_expiry=300,
+        minutes_to_expiry=5.0,
+    )
+
+    assert not intent.should_trade
+    assert intent.reason == "late_window_confidence_too_low"
+
+
+def test_trade_intent_accepts_strong_trade_outside_late_cutoffs():
+    intent = build_trade_intent(
+        predicted_prob=0.80,
+        yes_ask=Decimal("0.45"),
+        no_ask=Decimal("0.55"),
+        market_probability=0.40,
+        config=KalshiRiskConfig(
+            fee_per_contract=Decimal("0.01"),
+            min_edge_after_fees=Decimal("0.05"),
+            min_probability_gap=Decimal("0.05"),
+            min_model_confidence=Decimal("0.50"),
+            late_window_seconds=420,
+            late_window_min_edge=Decimal("0.08"),
+            late_window_min_confidence=Decimal("0.60"),
+            hard_late_entry_cutoff_seconds=180,
+            max_trade_dollars=Decimal("1000"),
+            max_total_exposure=Decimal("1000"),
+        ),
+        model_confidence=0.90,
+        seconds_to_expiry=600,
+        minutes_to_expiry=10.0,
+    )
+
+    assert intent.should_trade
+    assert intent.reason == "ok"

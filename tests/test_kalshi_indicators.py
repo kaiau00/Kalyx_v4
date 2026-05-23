@@ -3,11 +3,15 @@ from decimal import Decimal
 
 from core.strategy_brain.kalshi_indicators import (
     Candle,
+    DeribitSignalInput,
+    SentimentSignalInput,
     compute_indicators,
+    deribit_signals,
     implied_market_probability,
     kalshi_market_signals,
     orderbook_imbalance,
     orderbook_imbalance_multi_depth,
+    sentiment_signals,
 )
 from execution.kalshi_api import OrderBookLevel, OrderBookSnapshot
 
@@ -148,3 +152,29 @@ def test_crowd_fade_positive_when_below_50():
     crowd_fade = signals["crowd_fade"]
 
     assert crowd_fade.value < 0
+
+
+def test_deribit_signals_include_divergence():
+    signals = {signal.name: signal for signal in deribit_signals(
+        DeribitSignalInput(
+            funding_rate_pct=0.02,
+            funding_rate_direction=1,
+            funding_confidence=0.4,
+            oi_direction=-1,
+            oi_change_1h_pct=-0.05,
+            oi_confidence=0.5,
+        )
+    )}
+
+    assert "funding_rate" in signals
+    assert "open_interest" in signals
+    assert "funding_oi_divergence" in signals
+    assert signals["funding_oi_divergence"].value == -1.0
+
+
+def test_sentiment_signal_fades_greed():
+    signals = sentiment_signals(SentimentSignalInput(score=80))
+
+    assert len(signals) == 1
+    assert signals[0].name == "fear_greed"
+    assert signals[0].value < 0
