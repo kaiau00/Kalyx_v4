@@ -33,6 +33,7 @@ class KalshiRiskConfig:
     late_window_min_confidence: Decimal = Decimal("0.60")
     drawdown_size_reduction_threshold: Decimal = Decimal("0.50")
     min_price_cents: int = 18
+    avg_in_edge_multiplier: Decimal = Decimal("1.5")
 
 
 @dataclass
@@ -89,6 +90,7 @@ def build_trade_intent(
     model_confidence: Optional[float] = None,
     seconds_to_expiry: Optional[float] = None,
     minutes_to_expiry: Optional[float] = None,
+    existing_position_qty: Optional[int] = None,
 ) -> TradeIntent:
     if yes_ask is None or no_ask is None:
         return TradeIntent(False, None, Decimal("0"), 0, 0, Decimal("0"), Decimal("0"), "missing_quotes")
@@ -151,6 +153,12 @@ def build_trade_intent(
         return TradeIntent(False, side, price, int(price * 100), 0, ev, Decimal("0"), "daily_loss_cap", market_prob_dec, edge, edge_after_fees)
     if current_exposure >= config.max_total_exposure:
         return TradeIntent(False, side, price, int(price * 100), 0, ev, Decimal("0"), "exposure_cap", market_prob_dec, edge, edge_after_fees)
+
+    # Averaging-in: allow re-entry on the same contract if edge is strong enough
+    avg_in_min_edge = config.min_edge_after_fees * config.avg_in_edge_multiplier
+    if existing_position_qty is not None and existing_position_qty > 0:
+        if edge_after_fees < avg_in_min_edge:
+            return TradeIntent(False, side, price, int(price * 100), 0, ev, Decimal("0"), "avg_in_edge_too_thin", market_prob_dec, edge, edge_after_fees)
 
     kelly_fraction = capped_half_kelly(predicted_prob, side, price, config)
 

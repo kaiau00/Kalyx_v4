@@ -106,6 +106,7 @@ def load_risk_config() -> KalshiRiskConfig:
         late_window_min_confidence=_decimal_env("KALSHI_LATE_WINDOW_MIN_CONFIDENCE", "0.60"),
         drawdown_size_reduction_threshold=_decimal_env("KALSHI_DRAWDOWN_SIZE_REDUCTION_THRESHOLD", "0.50"),
         min_price_cents=int(os.getenv("KALSHI_MIN_PRICE_CENTS", "18")),
+        avg_in_edge_multiplier=_decimal_env("KALSHI_AVG_IN_EDGE_MULTIPLIER", "1.5"),
     )
 
 
@@ -486,8 +487,24 @@ async def run_kalshi_multisignal_strategy(
         if not contract:
             return StrategyRunResult(now, None, None, None, None, None, dry_run, "no_active_contract")
         existing_records = _load_trade_records()
-        if _contract_has_submitted_trade(contract.ticker, existing_records):
-            return StrategyRunResult(now, contract.ticker, None, None, None, None, dry_run, "already_traded_contract")
+
+        existing_position_qty: Optional[int] = None
+        if not dry_run:
+            try:
+                positions = await kalshi.get_positions()
+                for pos in positions:
+                    if pos.ticker == contract.ticker and pos.position > 0:
+                        existing_position_qty = int(pos.position)
+                        break
+            except Exception as exc:
+                logger.warning(f"Could not fetch position for {contract.ticker}: {exc}")
+
+        if existing_position_qty is None:
+            if _contract_has_submitted_trade(contract.ticker, existing_records):
+                return StrategyRunResult(now, contract.ticker, None, None, None, None, dry_run, "already_traded_contract")
+        elif existing_position_qty == 0:
+            if _contract_has_submitted_trade(contract.ticker, existing_records):
+                return StrategyRunResult(now, contract.ticker, None, None, None, None, dry_run, "already_traded_contract")
 
         open_state = _CONTRACT_OPEN_STATES.get(contract.ticker)
         if open_state is None:
@@ -604,6 +621,7 @@ async def run_kalshi_multisignal_strategy(
             model_confidence=model_prediction.confidence,
             seconds_to_expiry=feature_snapshot.features["seconds_to_expiry"],
             minutes_to_expiry=minutes_to_expiry,
+            existing_position_qty=existing_position_qty,
         )
 
         order: Optional[OrderResult] = None
